@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FZR Cloud Dashboard</title>
+<style>
+body{font-family:Tahoma,Arial,sans-serif;background:#1a1a2e;color:#fff;text-align:center;padding:16px;margin:0}
+h1{color:#00d2ff;margin:0 0 6px;font-size:22px}
+#conn{display:inline-block;padding:4px 12px;border-radius:20px;font-size:13px;background:#444}
+#conn.on{background:#0a7a3a}#conn.off{background:#9a1c1c}
+.grid{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:14px 0}
+.card{background:rgba(255,255,255,.06);padding:12px;border-radius:10px;width:100px;border:1px solid rgba(255,255,255,.1)}
+.card h3{margin:0 0 8px;font-size:13px;color:#999}
+.card p{margin:0;font-size:18px;font-weight:bold}
+.safe{color:#00ff64}.warning{color:#ffc800}.forbidden{color:#ff3232;animation:b 1s infinite}
+@keyframes b{50%{opacity:.3}}
+canvas{background:#0a0a1a;border-radius:160px 160px 0 0;max-width:100%}
+#log{max-width:340px;margin:16px auto;text-align:right;background:rgba(255,255,255,.05);border-radius:10px;padding:10px 14px;font-size:14px}
+#log h3{margin:0 0 6px;color:#00d2ff;font-size:15px}
+#log div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+</style>
+</head>
+<body>
+<h1>FZR Cloud Dashboard</h1>
+<span id="conn">جاري الاتصال...</span>
+<div class="grid">
+<div class="card"><h3>الحالة</h3><p id="z">---</p></div>
+<div class="card"><h3>المسافة</h3><p id="d">---</p></div>
+<div class="card"><h3>الزاوية</h3><p id="a">---</p></div>
+<div class="card"><h3>الطلقات</h3><p id="s">---</p></div>
+</div>
+<canvas id="c" width="320" height="180"></canvas>
+<div id="log"><h3>سجل الاختراقات</h3><div id="logItems">لا يوجد</div></div>
+
+<script>
+const DB = "https://fzr-protection-system-default-rtdb.firebaseio.com/radar.json";
+const c = document.getElementById('c'), x = c.getContext('2d');
+const cx = 160, cy = 170, R = 150, MAXD = 100;
+const pts = {};
+let lastTs = null, lastChange = 0, lastShots = null;
+const logs = [];
+
+function col(z){return z==='FORBIDDEN'?'#ff3232':z==='WARNING'?'#ffc800':'#00ff64';}
+
+function draw(angle, dist, zone){
+  x.clearRect(0,0,320,180);
+  x.strokeStyle='rgba(0,210,255,.25)'; x.lineWidth=1;
+  for(let k=1;k<=3;k++){x.beginPath();x.arc(cx,cy,R*k/3,Math.PI,2*Math.PI);x.stroke();}
+  for(let a=0;a<=180;a+=30){const r=a*Math.PI/180;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+R*Math.cos(r),cy-R*Math.sin(r));x.stroke();}
+  const ar=angle*Math.PI/180;
+  x.strokeStyle='rgba(0,210,255,.9)'; x.lineWidth=2;
+  x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+R*Math.cos(ar),cy-R*Math.sin(ar));x.stroke();
+  const now=Date.now();
+  if(dist<MAXD) pts[angle]={d:dist,z:zone,t:now}; else delete pts[angle];
+  for(const k in pts){
+    const p=pts[k];
+    if(now-p.t>10000){delete pts[k];continue;}
+    const r=k*Math.PI/180, rr=Math.min(p.d/MAXD,1)*R;
+    x.globalAlpha=1-(now-p.t)/12000;
+    x.beginPath();x.arc(cx+rr*Math.cos(r),cy-rr*Math.sin(r),5,0,2*Math.PI);
+    x.fillStyle=col(p.z);x.fill();
+  }
+  x.globalAlpha=1;
+}
+
+function setConn(on, text){
+  const e=document.getElementById('conn');
+  e.className=on?'on':'off'; e.innerText=text;
+}
+
+function addLog(d){
+  const t=new Date().toLocaleTimeString('ar');
+  logs.unshift(`${t} — ${d.distance} سم عند ${d.angle}°`);
+  if(logs.length>8) logs.pop();
+  document.getElementById('logItems').innerHTML = logs.map(l=>`<div>${l}</div>`).join('');
+}
+
+async function poll(){
+  try{
+    const r = await fetch(DB, {cache:'no-store'});
+    const d = await r.json();
+    if(!d){ setConn(false,'لا توجد بيانات'); return; }
+
+    if(d.ts !== undefined){
+      if(d.ts !== lastTs){ lastTs = d.ts; lastChange = Date.now(); }
+      const online = Date.now()-lastChange < 10000;
+      setConn(online, online ? 'الجهاز متصل' : 'الجهاز غير متصل');
+    } else {
+      setConn(true, 'متصل بالسحابة');
+    }
+
+    document.getElementById('d').innerText = d.distance>=400 ? '---' : d.distance+' cm';
+    document.getElementById('a').innerText = d.angle+'°';
+    document.getElementById('s').innerText = d.shots ?? 0;
+    const z=document.getElementById('z'); z.innerText=d.zone; z.className=d.zone.toLowerCase();
+    draw(d.angle, d.distance, d.zone);
+
+    if(lastShots!==null && d.shots>lastShots) addLog(d);
+    lastShots = d.shots;
+  }catch(e){
+    setConn(false,'خطأ في الاتصال');
+  }
+}
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
