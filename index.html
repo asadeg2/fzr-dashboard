@@ -1,109 +1,216 @@
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FZR Cloud Dashboard</title>
-<style>
-body{font-family:Tahoma,Arial,sans-serif;background:#1a1a2e;color:#fff;text-align:center;padding:16px;margin:0}
-h1{color:#00d2ff;margin:0 0 6px;font-size:22px}
-#conn{display:inline-block;padding:4px 12px;border-radius:20px;font-size:13px;background:#444}
-#conn.on{background:#0a7a3a}#conn.off{background:#9a1c1c}
-.grid{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:14px 0}
-.card{background:rgba(255,255,255,.06);padding:12px;border-radius:10px;width:100px;border:1px solid rgba(255,255,255,.1)}
-.card h3{margin:0 0 8px;font-size:13px;color:#999}
-.card p{margin:0;font-size:18px;font-weight:bold}
-.safe{color:#00ff64}.warning{color:#ffc800}.forbidden{color:#ff3232;animation:b 1s infinite}
-@keyframes b{50%{opacity:.3}}
-canvas{background:#0a0a1a;border-radius:160px 160px 0 0;max-width:100%}
-#log{max-width:340px;margin:16px auto;text-align:right;background:rgba(255,255,255,.05);border-radius:10px;padding:10px 14px;font-size:14px}
-#log h3{margin:0 0 6px;color:#00d2ff;font-size:15px}
-#log div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.08)}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FZR Cloud Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { color: #00d2ff; margin-bottom: 5px; }
+        .status-badge {
+            background: rgba(0, 255, 100, 0.2);
+            color: #00ff64;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            border: 1px solid #00ff64;
+        }
+        .grid {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            width: 100%;
+            max-width: 600px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 12px;
+            width: 120px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .card h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #888;
+        }
+        .card p {
+            margin: 0;
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .safe { color: #00ff64; }
+        .warning { color: #ffc800; }
+        .forbidden { color: #ff3232; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.3; } }
+        
+        .radar-container {
+            background: #0a0a1a;
+            border-radius: 160px 160px 0 0;
+            border: 2px solid #00d2ff;
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
+            margin-top: 10px;
+            position: relative;
+        }
+        canvas { display: block; }
+    </style>
 </head>
 <body>
-<h1>FZR Cloud Dashboard</h1>
-<span id="conn">جاري الاتصال...</span>
-<div class="grid">
-<div class="card"><h3>الحالة</h3><p id="z">---</p></div>
-<div class="card"><h3>المسافة</h3><p id="d">---</p></div>
-<div class="card"><h3>الزاوية</h3><p id="a">---</p></div>
-<div class="card"><h3>الطلقات</h3><p id="s">---</p></div>
-</div>
-<canvas id="c" width="320" height="180"></canvas>
-<div id="log"><h3>سجل الاختراقات</h3><div id="logItems">لا يوجد</div></div>
 
-<script>
-const DB = "https://fzr-protection-system-default-rtdb.firebaseio.com/radar.json";
-const c = document.getElementById('c'), x = c.getContext('2d');
-const cx = 160, cy = 170, R = 150, MAXD = 100;
-const pts = {};
-let lastTs = null, lastChange = 0, lastShots = null;
-const logs = [];
+    <h1>🛡️ FZR Cloud Dashboard</h1>
+    <div class="status-badge" id="connectionStatus">جاري الاتصال بالسحابة...</div>
 
-function col(z){return z==='FORBIDDEN'?'#ff3232':z==='WARNING'?'#ffc800':'#00ff64';}
+    <div class="grid">
+        <div class="card">
+            <h3>الحالة / Zone</h3>
+            <p id="zoneVal">---</p>
+        </div>
+        <div class="card">
+            <h3>المسافة / Dist</h3>
+            <p id="distVal">---</p>
+        </div>
+        <div class="card">
+            <h3>الزاوية / Angle</h3>
+            <p id="angleVal">---</p>
+        </div>
+        <div class="card">
+            <h3>الطلقات / Shots</h3>
+            <p id="shotsVal">0</p>
+        </div>
+    </div>
 
-function draw(angle, dist, zone){
-  x.clearRect(0,0,320,180);
-  x.strokeStyle='rgba(0,210,255,.25)'; x.lineWidth=1;
-  for(let k=1;k<=3;k++){x.beginPath();x.arc(cx,cy,R*k/3,Math.PI,2*Math.PI);x.stroke();}
-  for(let a=0;a<=180;a+=30){const r=a*Math.PI/180;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+R*Math.cos(r),cy-R*Math.sin(r));x.stroke();}
-  const ar=angle*Math.PI/180;
-  x.strokeStyle='rgba(0,210,255,.9)'; x.lineWidth=2;
-  x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+R*Math.cos(ar),cy-R*Math.sin(ar));x.stroke();
-  const now=Date.now();
-  if(dist<MAXD) pts[angle]={d:dist,z:zone,t:now}; else delete pts[angle];
-  for(const k in pts){
-    const p=pts[k];
-    if(now-p.t>10000){delete pts[k];continue;}
-    const r=k*Math.PI/180, rr=Math.min(p.d/MAXD,1)*R;
-    x.globalAlpha=1-(now-p.t)/12000;
-    x.beginPath();x.arc(cx+rr*Math.cos(r),cy-rr*Math.sin(r),5,0,2*Math.PI);
-    x.fillStyle=col(p.z);x.fill();
-  }
-  x.globalAlpha=1;
-}
+    <div class="radar-container">
+        <canvas id="radarCanvas" width="320" height="180"></canvas>
+    </div>
 
-function setConn(on, text){
-  const e=document.getElementById('conn');
-  e.className=on?'on':'off'; e.innerText=text;
-}
+    <!-- استدعاء مكتبات Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-database.js";
 
-function addLog(d){
-  const t=new Date().toLocaleTimeString('ar');
-  logs.unshift(`${t} — ${d.distance} سم عند ${d.angle}°`);
-  if(logs.length>8) logs.pop();
-  document.getElementById('logItems').innerHTML = logs.map(l=>`<div>${l}</div>`).join('');
-}
+        // إعدادات Firebase الخاصة بك
+        const firebaseConfig = {
+            apiKey: "AIzaSyB32kWRulIDJ-Rkp0D-aFdRC6rZMNhMvX4",
+            databaseURL: "https://fzr-protection-system-default-rtdb.firebaseio.com"
+        };
 
-async function poll(){
-  try{
-    const r = await fetch(DB, {cache:'no-store'});
-    const d = await r.json();
-    if(!d){ setConn(false,'لا توجد بيانات'); return; }
+        // تهيئة Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        
+        // قراءة البيانات من مسار /radar
+        const radarRef = ref(db, 'radar');
 
-    if(d.ts !== undefined){
-      if(d.ts !== lastTs){ lastTs = d.ts; lastChange = Date.now(); }
-      const online = Date.now()-lastChange < 10000;
-      setConn(online, online ? 'الجهاز متصل' : 'الجهاز غير متصل');
-    } else {
-      setConn(true, 'متصل بالسحابة');
-    }
+        const canvas = document.getElementById('radarCanvas');
+        const ctx = canvas.getContext('2d');
+        const cx = 160;
+        const cy = 170;
+        const R = 150;
+        const MAXD = 100; // أقصى مسافة للرسم
 
-    document.getElementById('d').innerText = d.distance>=400 ? '---' : d.distance+' cm';
-    document.getElementById('a').innerText = d.angle+'°';
-    document.getElementById('s').innerText = d.shots ?? 0;
-    const z=document.getElementById('z'); z.innerText=d.zone; z.className=d.zone.toLowerCase();
-    draw(d.angle, d.distance, d.zone);
+        let points = {}; // لتخزين النقاط المكتشفة
 
-    if(lastShots!==null && d.shots>lastShots) addLog(d);
-    lastShots = d.shots;
-  }catch(e){
-    setConn(false,'خطأ في الاتصال');
-  }
-}
-poll();
-setInterval(poll, 1000);
-</script>
+        function getColor(zone) {
+            if (zone === 'FORBIDDEN') return '#ff3232';
+            if (zone === 'WARNING') return '#ffc800';
+            return '#00ff64';
+        }
+
+        function drawRadar(logicalAngle, dist, zone) {
+            ctx.clearRect(0, 0, 320, 180);
+
+            // 1. رسم شبكة الرادار (دوائر وزوايا)
+            ctx.strokeStyle = 'rgba(0, 210, 255, 0.2)';
+            ctx.lineWidth = 1;
+            for (let k = 1; k <= 3; k++) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, R * k / 3, Math.PI, 2 * Math.PI);
+                ctx.stroke();
+            }
+            for (let a = 0; a <= 180; a += 30) {
+                const r = a * Math.PI / 180;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + R * Math.cos(r), cy - R * Math.sin(r));
+                ctx.stroke();
+            }
+
+            // 2. رسم شعاع المسح المتزامن
+            // الزاوية المنطقية 0 تعني المنتصف (للأعلى). -90 يسار، +90 يمين
+            // نقوم بتحويلها لتناسب رسمة الكانفس
+            const sweepAngle = (90 - logicalAngle) * Math.PI / 180;
+            
+            ctx.strokeStyle = 'rgba(0, 210, 255, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + R * Math.cos(sweepAngle), cy - R * Math.sin(sweepAngle));
+            ctx.stroke();
+
+            // 3. رسم النقاط المكتشفة (إذا كانت المسافة صالحة)
+            if (dist > 0 && dist < MAXD) {
+                points[logicalAngle] = { d: dist, z: zone };
+            } else {
+                delete points[logicalAngle]; // إزالة النقطة إذا لم يعد هناك جسم
+            }
+
+            for (const key in points) {
+                const p = points[key];
+                const pAngle = (90 - parseFloat(key)) * Math.PI / 180;
+                const pRadius = Math.min(p.d / MAXD, 1) * R;
+                
+                ctx.beginPath();
+                ctx.arc(cx + pRadius * Math.cos(pAngle), cy - pRadius * Math.sin(pAngle), 5, 0, 2 * Math.PI);
+                ctx.fillStyle = getColor(p.z);
+                ctx.fill();
+            }
+        }
+
+        // الاستماع لأي تغيير في بيانات Firebase
+        onValue(radarRef, (snapshot) => {
+            const data = snapshot.val();
+            const statusBadge = document.getElementById('connectionStatus');
+
+            if (data) {
+                statusBadge.innerText = "متصل بالسحابة (Live)";
+                statusBadge.style.background = "rgba(0, 255, 100, 0.2)";
+                statusBadge.style.color = "#00ff64";
+                statusBadge.style.borderColor = "#00ff64";
+
+                // تحديث الأرقام في الشاشة
+                document.getElementById('distVal').innerText = (data.distance === 0 || data.distance >= 400) ? '---' : data.distance;
+                document.getElementById('angleVal').innerText = (data.angle || 0) + '°';
+                document.getElementById('shotsVal').innerText = data.shots || 0;
+                
+                const zoneEl = document.getElementById('zoneVal');
+                zoneEl.innerText = data.zone || '---';
+                zoneEl.className = (data.zone || 'SAFE').toLowerCase();
+
+                // رسم الرادار المتزامن
+                drawRadar(data.angle || 0, data.distance || 0, data.zone || 'SAFE');
+            } else {
+                statusBadge.innerText = "في انتظار البيانات...";
+            }
+        }, (error) => {
+            console.error("Error reading data: ", error);
+            document.getElementById('connectionStatus').innerText = "خطأ في الاتصال بالسحابة";
+            document.getElementById('connectionStatus').style.color = "red";
+            document.getElementById('connectionStatus').style.borderColor = "red";
+        });
+    </script>
 </body>
 </html>
